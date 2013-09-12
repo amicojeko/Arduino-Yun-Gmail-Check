@@ -21,7 +21,8 @@ Checking Gmail Inbox with the Process class and the Curl command
  
  This example code is in the public domain.
  
-[photo]: http://i.imgur.com/ZJb97bol.jpg "Arduino Yun Gmail Alerter" 
+ 
+![Photo](http://i.imgur.com/ZJb97bol.jpg "Arduino Yun Gmail Alerter") 
  
  
 ##Instructions
@@ -51,7 +52,7 @@ and connect
  
 plus, obviously, +5V and GND :)
 
-[the hardware]: http://i.imgur.com/eiaMH2Gl.png "Arduino Yun Gmail Alerter - the hardware" 
+![the hardware](http://i.imgur.com/eiaMH2Gl.jpg "Arduino Yun Gmail Alerter - the hardware")
 
 ###Usage
 
