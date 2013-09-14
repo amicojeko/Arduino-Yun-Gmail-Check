@@ -125,9 +125,10 @@ void setup() {
     ser_log("done!\n");  
   } 
 
-  // Checks if a settings have been chenged via webservices 
-  // storage webservices are called this way: 
-  // http://<arduino ip/hostname>/data/put/<key>/<value>  
+  // Check if settings have been changed via webservices 
+  // Data storage webservices are called this way: 
+  // PUT: http://<arduino ip/hostname>/data/put/<key>/<value>  
+  // GET: http://<arduino ip/hostname>/data/get/<key>  
   void check_settings() {
     check_credentials();
     check_label();
