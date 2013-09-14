@@ -27,16 +27,18 @@ Checking Gmail Inbox with the Process class and the Curl command
  
 ##Instructions
 
-###Software
+###Software Setup
 
-replace
-```c
-const String username = "USERNAME";
-const String password = "PASSWORD";
-```
-with your actual Gmail username and password.
+In order for your Arduino to be able to access your Gmail feeds, you need to supply valid Gmail credentials.
+The credentials are in the form used by Basic HTTP Auth, USERNAME:PASSWORD, for example `john:doe`.
 
-Then upload it on Arduino Yun **Arduino Yun must be connected to the internet**
+All you need to do is just call the Yun web service for temporary storage at this address 
+http://arduino.local/data/put/gmail.credentials/USERNAME:PASSWORD
+replacing USERNAME and PASSWORD with you real credentials.
+
+Settings are persistent, once configured, they will survive a reboot or a reset.
+
+You can now turn Arduino Yun on **Arduino Yun must be connected to the internet**
 
 ###Hardware
 
@@ -56,5 +58,5 @@ plus, obviously, +5V and GND :)
 
 ###Usage
 
-Configure a label on Gmail, apply some filters, then point your browser to http://arduino.local/data/put/label/LABELNAME
+Configure a label on Gmail, apply some filters, then point your browser to http://<arduino host>/data/put/gmail.label/LABELNAME
 and replace LABELNAME with your label. Arduino will turn the led ON if there are unread messages under that label, and the LED display will show the number of unread messages.
