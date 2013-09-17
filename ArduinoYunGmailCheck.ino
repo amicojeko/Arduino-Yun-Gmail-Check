@@ -36,7 +36,7 @@
 #define CURL "curl"
 #define CURL_FLAGS " -k --silent "
 #define SETTINGS_URL "https://mail.google.com/mail/feed/atom/"
-#define SETTINGS_RE  "grep -oE \"<fullcount>[0-9]*</fullcount>\" |grep -oE \"[0-9]*\""
+#define SETTINGS_RE  "grep -oE \"<fullcount>[0-9]*</fullcount>|Error 401\" |grep -oE \"[0-9]*|Error 401\""
 #define SETTINGS_CREDENTIALS "gmail.credentials"
 #define SETTINGS_LABEL "gmail.label"
 
@@ -237,15 +237,25 @@ void setup() {
 
     for(int i=0;i<bytes_to_read;++i)
       char_buffer[i] = proc.read();
-      
+
     char_buffer[bytes_to_read] = '\0'; // null terminated string
     proc.flush();
+      
+    // remove trailing spaces
+    while(isspace(char_buffer[bytes_to_read-1]) && bytes_to_read > 0) 
+       bytes_to_read--;
+    char_buffer[bytes_to_read] = '\0'; // null terminated string
 
     Serial.println(char_buffer);
     Serial.flush();    
 
-    // TODO: check for the string 401 for unauthorized calls
-
+    // check for the string Error 401 for unauthorized calls
+    if(strcmp("Error 401", char_buffer)  == 0) {      
+      led_clear();
+      led_display_string(String("E401"));
+      return(-1);
+    }
+    
     return(atol(char_buffer));
   }
 
@@ -261,6 +271,13 @@ void setup() {
       shell_cmd.concat(label);
     shell_cmd.concat("\" | ");
     shell_cmd.concat(SETTINGS_RE);
+  }
+
+
+// ** 7 SEGMENTS LED WRAPPER
+  
+  void led_clear() {
+    lc.clearDisplay(0);    
   }
 
   // This is the printNumber function for the LED Display, borrowed from 
@@ -282,6 +299,17 @@ void setup() {
     }
   }
   
+  void led_display_string(String s) {
+    if(s.length() == 0)
+      return;
+
+    int digit = s.length()-1;
+    for(int i=0;i<s.length();++i,digit--) {
+      lc.setChar(0, digit, s.charAt(i), false);
+    }
+
+  }
+
 // ** INTERNAL STORAGE WRAPPER
 
   String get(String key) {
@@ -297,7 +325,10 @@ void loop() {
 
   int messages = check_for_new_messages();
   
-  led_display_number(messages);
+  if(messages >= 0) {
+    led_clear();
+    led_display_number(messages);
+  }
 
   if (messages > 0)
     led_on(); /* If I got messages, then I turn the red LED on */
