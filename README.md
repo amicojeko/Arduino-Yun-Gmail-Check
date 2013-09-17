@@ -35,6 +35,11 @@ The credentials are in the form used by Basic HTTP Auth, USERNAME:PASSWORD, for 
 All you need to do is just call the Yun web service for temporary storage at this address 
 http://arduino.local/data/put/gmail.credentials/USERNAME:PASSWORD
 replacing USERNAME and PASSWORD with you real credentials.
+A second way is to directly modify/create the configuration files used to persist the settings.
+There are two files, placed inside the `.gmail` folder in the root home, one called `credentials`, one called `label`.
+Not surprisingly, the first one contains the credentials to access Gmail and the second the label you want to monitor.
+Both these settings are hot reloaded on change.
+Changes through webservices are also persisted on disk.
 
 Settings are persistent, once configured, they will survive a reboot or a reset.
 
