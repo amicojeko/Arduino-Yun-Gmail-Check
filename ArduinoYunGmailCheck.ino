@@ -265,7 +265,7 @@ void setup() {
 
   // This is the printNumber function for the LED Display, borrowed from 
   // http://playground.arduino.cc/Main/LedControl#NumberSeg7Control
-  void print_number(int n) {
+  void led_display_number(int n) {
     int digit_pos = 0;
 
     if(n == 0) {
@@ -297,7 +297,7 @@ void loop() {
 
   int messages = check_for_new_messages();
   
-  print_number(messages);
+  led_display_number(messages);
 
   if (messages > 0)
     led_on(); /* If I got messages, then I turn the red LED on */
