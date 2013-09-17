@@ -22,28 +22,32 @@
  This example code is in the public domain.
  */
 
-#include <stdarg.h>
 #include <Process.h>
 #include <FileIO.h>
 
 #include "LedControl.h" // Downloaded From http://playground.arduino.cc/Main/LedControl 
 
 
-#define DELAY 5000 /* This is the settings folder */
-#define MAX_BUFF_LEN 512 // max length in bytes for a buffer
+#define DELAY 1000 /* Delay in milliseconds between two loops */
+#define MAX_BUFF_LEN 128 // max length in bytes for a buffer
 #define LED_PIN 13 /* Led on Pin 13 */
 
+
+#define CURL "curl"
+#define CURL_FLAGS " -k --silent "
+#define SETTINGS_URL "https://mail.google.com/mail/feed/atom/"
+#define SETTINGS_RE  "grep -oE \"<fullcount>[0-9]*</fullcount>\" |grep -oE \"[0-9]*\""
 #define SETTINGS_CREDENTIALS "gmail.credentials"
 #define SETTINGS_LABEL "gmail.label"
 
-const String SETTINGS_FOLDER="/root/.gmail"; /* This is the settings folder */
+#define MAKE_CMD(U,L) "curl -u \"" U.c_str() "\" \"" SETTINGS_URL L.c_str() "\"" CURL_FLAGS " | " SETTINGS_RE
 
-// generic buffer that will temporary hold the values from thoose functions that 
-// read into char arrays. used to avoid to allocate and release heap memory
-char buffer[MAX_BUFF_LEN]; 
+const String SETTINGS_FOLDER="/root/.gmail"; /* This is the settings folder */
 
 String label;
 String credentials;
+String shell_cmd;
+Process proc;
 
 /*
  Now we need a LedControl to work with.
@@ -58,24 +62,6 @@ LedControl lc = LedControl(12,11,10,1);
 
 // ** STRING MANIPULATION & HW HANDLING
 
-  // log something on Serial, using a printf format string
-  void ser_log(char *fmt, ... ){
-    va_list args;
-    va_start (args, fmt );
-      vsnprintf(buffer, MAX_BUFF_LEN, fmt, args);
-    va_end (args);
-    Serial.print(buffer);
-  }
-
-  // format a string using printf format string
-  String fmt(char *fmt, ... ) {
-    va_list args;
-    va_start (args, fmt );
-      vsnprintf(buffer, MAX_BUFF_LEN, fmt, args);
-    va_end (args);
-    return(String(buffer));
-  } 
-
   void led_on() {
     digitalWrite(LED_PIN, HIGH);     
   }
@@ -88,16 +74,22 @@ LedControl lc = LedControl(12,11,10,1);
 
 void setup() {
   init_board();
+  init_console();
   init_led();
   init_fs(); // initialize file system  
-  read_settings();
+  read_settings(); // read credentials and label to watch for
+  create_process(); // create command used toretreive messages
 }
 
 // ** MAIN FUNCTIONS
 
   void init_board() {
     Bridge.begin();   /* Initialize the Bridge */
-    Serial.begin(9600);   /* Initialize the Serial for debugging */
+    Serial.begin(9600);   /* Initialize the Serial for debugging */    
+  }
+
+  void init_console() {
+    Console.begin(); 
   }
 
   void init_led() {
@@ -117,12 +109,8 @@ void setup() {
 
   // read initial settings
   void read_settings() {
-    ser_log("reading settings... ");
-    
     credentials = read_credentials();
     label = read_label();
-
-    ser_log("done!\n");  
   } 
 
   // Check if settings have been changed via webservices 
@@ -130,11 +118,15 @@ void setup() {
   // PUT: http://<arduino ip/hostname>/data/put/<key>/<value>  
   // GET: http://<arduino ip/hostname>/data/get/<key>  
   void check_settings() {
-    check_credentials();
-    check_label();
+    if(credentials_changed() || label_changed()) {
+      // is something changed, create a new command with the new params
+      create_process();
+    }
   }
 
-  void check_credentials() {
+  // this two functions check for changes in settings, return true on change
+  // false otherwise
+  boolean credentials_changed() {
     String tmp = get(SETTINGS_CREDENTIALS);
 
     // Checks if credentials have been changed
@@ -142,10 +134,12 @@ void setup() {
     if (tmp.length() > 0 && credentials != tmp){
       credentials = tmp;
       store_credentials(credentials);
+      return(true);
     }     
+    return(false);
   }
 
-  void check_label() {
+  boolean label_changed() {
     String tmp = get(SETTINGS_LABEL);
 
     // Checks if a label has been specified via webservices and stores it in 
@@ -155,7 +149,9 @@ void setup() {
     if (tmp.length() > 0 && label != tmp){
       label = tmp;
       store_label(label);
-    }     
+      return(true);
+    }          
+    return(false);
   }
 
 // ** FILE MANIPULATION ROUTINES
@@ -174,19 +170,30 @@ void setup() {
   String file_read(String file_name) {
     File file = FileSystem.open(file_name.c_str(), FILE_READ);  
     
+    if(!file) {
+      //ser_log("File '%s' cannot be opened for reading.", file_name);
+      Serial.println("File '" +  file_name + "' cannot be opened for reading");
+      return("");
+    }
+    
     //int bytes_to_read = max(file.size(), MAX_BUFF_LEN); // read up to MAX_BUFF_LEN bytes
     // NOTE: for some reason size is not recognized even if it is documented
     // http://arduino.cc/en/Reference/YunFileIOSize
     // switch to available
-    int bytes_to_read = max(file.available(), MAX_BUFF_LEN); // read up to MAX_BUFF_LEN bytes
+    int bytes_to_read = min(file.available(), MAX_BUFF_LEN); // read up to MAX_BUFF_LEN bytes
+    char char_buffer[bytes_to_read+1];
 
     for(int i=0;i<bytes_to_read;++i)
-      buffer[i] = file.read();
+      char_buffer[i] = file.read();
 
-    buffer[bytes_to_read] = '\0'; // null terminated string
+    // remove trailing spaces
+    while(isspace(char_buffer[bytes_to_read-1]) && bytes_to_read > 0) 
+       bytes_to_read--;
+    char_buffer[bytes_to_read] = '\0'; // null terminated string
+    
     file.close();
 
-    return(String(buffer));
+    return(String(char_buffer));
   }
 
   // Write the String s into the file file_name
@@ -221,30 +228,39 @@ void setup() {
 // ** PROCESS WRAPPER
   
   int check_for_new_messages() {
-    // Checks for unread messages in a specified label and returns the number of messages 
-    String shell_cmd = fmt("curl -u \"%s\" \"https://mail.google.com/mail/feed/atom/%s\" \
-      -k --silent |grep -o \"<fullcount>[0-9]*</fullcount>\" |grep -o \"[0-9]*\"", \
-      credentials, label);
- 
-    // This command checks for a specified sender and returns the number of messages, 
-    // i changed it to check for a label because I thought the label was more 
-    // flexible as I could configure it from Gmail, 
-    // I left it here for your pleasure
-    // curl -u USERNAME:PASSWORD "https://mail.google.com/mail/feed/atom" -k --silent |grep -o "<email>EMAIL_ADDR</email>" |wc -l 
+    Serial.println("checking for new messages");
 
-    return(run_shellcmd_with_retval(shell_cmd));
+    proc.runShellCommand(shell_cmd);
+
+    int bytes_to_read = min(proc.available(), MAX_BUFF_LEN); // read up to MAX_BUFF_LEN bytes
+    char char_buffer[bytes_to_read+1];
+
+    for(int i=0;i<bytes_to_read;++i)
+      char_buffer[i] = proc.read();
+      
+    char_buffer[bytes_to_read] = '\0'; // null terminated string
+    proc.flush();
+
+    Serial.println(char_buffer);
+    Serial.flush();    
+
+    // TODO: check for the string 401 for unauthorized calls
+
+    return(atol(char_buffer));
   }
 
-  int run_shellcmd_with_retval(String cmd) {
-
-    Process p;
-    p.runShellCommand(cmd);
-    while(p.running());  /* do nothing until the process finishes, so you get the whole output */
-
-    int result = p.parseInt();  /* look for an integer */
-    p.flush();
-
-    return(result);
+  void create_process() {
+    shell_cmd.remove(0); // clear string
+    shell_cmd.concat(CURL);
+    shell_cmd.concat(CURL_FLAGS);
+    shell_cmd.concat(" -u \"");
+    shell_cmd.concat(credentials);
+    shell_cmd.concat("\" \"");
+    shell_cmd.concat(SETTINGS_URL);
+    if(label.length() > 0)
+      shell_cmd.concat(label);
+    shell_cmd.concat("\" | ");
+    shell_cmd.concat(SETTINGS_RE);
   }
 
   // This is the printNumber function for the LED Display, borrowed from 
@@ -269,8 +285,9 @@ void setup() {
 // ** INTERNAL STORAGE WRAPPER
 
   String get(String key) {
-    Bridge.get(key.c_str(), buffer, MAX_BUFF_LEN);
-    return(String(buffer)); 
+    char char_buffer[MAX_BUFF_LEN];
+    Bridge.get(key.c_str(), char_buffer, MAX_BUFF_LEN);
+    return(String(char_buffer)); 
   }
 
 // ** MAIN LOOP 
@@ -288,4 +305,13 @@ void loop() {
     led_off(); /* No messages, so I turn the red LED off */
 
   delay(DELAY);  // wait 5 seconds before you do it again
+
 }
+
+
+
+
+
+
+
+
