@@ -40,8 +40,6 @@
 #define SETTINGS_CREDENTIALS "gmail.credentials"
 #define SETTINGS_LABEL "gmail.label"
 
-#define MAKE_CMD(U,L) "curl -u \"" U.c_str() "\" \"" SETTINGS_URL L.c_str() "\"" CURL_FLAGS " | " SETTINGS_RE
-
 const String SETTINGS_FOLDER="/root/.gmail"; /* This is the settings folder */
 
 String label; 
