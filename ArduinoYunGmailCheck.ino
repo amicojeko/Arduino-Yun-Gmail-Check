@@ -44,8 +44,13 @@
 
 const String SETTINGS_FOLDER="/root/.gmail"; /* This is the settings folder */
 
-String label;
+String label; 
 String credentials;
+
+// monitor changes in settings filles
+int label_mtime; 
+int credentials_mtime;
+
 String shell_cmd;
 Process proc;
 
@@ -105,12 +110,16 @@ void setup() {
     if(!file_or_dir_exists(SETTINGS_FOLDER))  {
       mkdir(SETTINGS_FOLDER);
     }
+
   }
 
   // read initial settings
   void read_settings() {
     credentials = read_credentials();
     label = read_label();
+
+    label_mtime = label_get_mtime();
+    credentials_mtime = credentials_get_mtime();
   } 
 
   // Check if settings have been changed via webservices 
@@ -128,6 +137,7 @@ void setup() {
   // false otherwise
   boolean credentials_changed() {
     String tmp = get(SETTINGS_CREDENTIALS);
+    int mtime = credentials_get_mtime();
 
     // Checks if credentials have been changed
     // TODO: If credentials are empty, show an error (NOACCES) on the LED display
@@ -135,12 +145,19 @@ void setup() {
       credentials = tmp;
       store_credentials(credentials);
       return(true);
-    }     
+    } else if(mtime != credentials_mtime) {
+      credentials = read_credentials();
+      credentials_mtime = mtime;
+      return(true);
+    }    
+
+
     return(false);
   }
 
   boolean label_changed() {
     String tmp = get(SETTINGS_LABEL);
+    int mtime = label_get_mtime();
 
     // Checks if a label has been specified via webservices and stores it in 
     // a configuration file. If no label has been specified, it retrieves the 
@@ -149,6 +166,10 @@ void setup() {
     if (tmp.length() > 0 && label != tmp){
       label = tmp;
       store_label(label);
+      return(true);
+    } else if(mtime != label_mtime) {
+      label = read_label();
+      label_mtime = mtime;
       return(true);
     }          
     return(false);
@@ -204,6 +225,25 @@ void setup() {
     file.close();  
   }
 
+  int file_mtime(String file_name) {
+
+    String cmd = "date +%s --reference=";
+    cmd.concat(file_name);
+
+    Process p;    
+    p.runShellCommand(cmd);
+    
+    return(process_read(p).toInt());
+  }
+
+  int label_get_mtime() {
+    return(file_mtime(SETTINGS_FOLDER + "/label"));
+  }
+
+  int credentials_get_mtime() {
+    return(file_mtime(SETTINGS_FOLDER + "/credentials"));
+  }
+
   // Save gmail username and password on persistent storage
   // Credentials are in the form USERNAME:PASSWORD
   void store_credentials(String credentials) {
@@ -226,37 +266,45 @@ void setup() {
   }
 
 // ** PROCESS WRAPPER
-  
+
+
   int check_for_new_messages() {
     Serial.println("checking for new messages");
 
     proc.runShellCommand(shell_cmd);
 
-    int bytes_to_read = min(proc.available(), MAX_BUFF_LEN); // read up to MAX_BUFF_LEN bytes
+    String s = process_read(proc);
+
+    Serial.println(s);
+    Serial.flush();    
+
+    // check for the string Error 401 for unauthorized calls
+    if(s == "Error 401") {      
+      led_clear();
+      led_display_string(String("E401"));
+      return(-1);
+    }
+    
+    return(s.toInt());
+  }
+
+  String process_read(Process p) {
+
+    int bytes_to_read = min(p.available(), MAX_BUFF_LEN); // read up to MAX_BUFF_LEN bytes
     char char_buffer[bytes_to_read+1];
 
     for(int i=0;i<bytes_to_read;++i)
-      char_buffer[i] = proc.read();
+      char_buffer[i] = p.read();
 
     char_buffer[bytes_to_read] = '\0'; // null terminated string
-    proc.flush();
+    p.flush();
       
     // remove trailing spaces
     while(isspace(char_buffer[bytes_to_read-1]) && bytes_to_read > 0) 
        bytes_to_read--;
     char_buffer[bytes_to_read] = '\0'; // null terminated string
 
-    Serial.println(char_buffer);
-    Serial.flush();    
-
-    // check for the string Error 401 for unauthorized calls
-    if(strcmp("Error 401", char_buffer)  == 0) {      
-      led_clear();
-      led_display_string(String("E401"));
-      return(-1);
-    }
-    
-    return(atol(char_buffer));
+    return(String(char_buffer));
   }
 
   void create_process() {
@@ -272,7 +320,6 @@ void setup() {
     shell_cmd.concat("\" | ");
     shell_cmd.concat(SETTINGS_RE);
   }
-
 
 // ** 7 SEGMENTS LED WRAPPER
   
