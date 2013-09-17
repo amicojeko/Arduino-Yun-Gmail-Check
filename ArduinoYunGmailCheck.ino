@@ -50,7 +50,6 @@ int label_mtime;
 int credentials_mtime;
 
 String shell_cmd;
-Process proc;
 
 /*
  Now we need a LedControl to work with.
@@ -224,7 +223,6 @@ void setup() {
   }
 
   int file_mtime(String file_name) {
-
     String cmd = "date +%s --reference=";
     cmd.concat(file_name);
 
@@ -269,9 +267,10 @@ void setup() {
   int check_for_new_messages() {
     Serial.println("checking for new messages");
 
-    proc.runShellCommand(shell_cmd);
+    Process p;
+    p.runShellCommand(shell_cmd);
 
-    String s = process_read(proc);
+    String s = process_read(p);
 
     Serial.println(s);
     Serial.flush();    
