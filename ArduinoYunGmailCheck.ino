@@ -33,14 +33,18 @@
 #define LED_PIN 13 /* Led on Pin 13 */
 
 
+#define CREDENTIALS "credentials"
+#define LABEL "label"
+
 #define CURL "curl"
 #define CURL_FLAGS " -k --silent "
 #define SETTINGS_URL "https://mail.google.com/mail/feed/atom/"
 #define SETTINGS_RE  "grep -oE \"<fullcount>[0-9]*</fullcount>|Error 401\" |grep -oE \"[0-9]*|Error 401\""
-#define SETTINGS_CREDENTIALS "gmail.credentials"
-#define SETTINGS_LABEL "gmail.label"
+#define SETTINGS_KEY_PREFIX "gmail."
+#define SETTINGS_KEY_CREDENTIALS SETTINGS_KEY_PREFIX CREDENTIALS
+#define SETTINGS_KEY_LABEL SETTINGS_KEY_PREFIX LABEL
 
-const String SETTINGS_FOLDER="/root/.gmail"; /* This is the settings folder */
+const String SETTINGS_FOLDER = "/root/.gmail"; /* This is the settings folder */
 
 String label; 
 String credentials;
@@ -61,29 +65,26 @@ String shell_cmd;
 
 LedControl lc = LedControl(12,11,10,1);
 
-
-// ** STRING MANIPULATION & HW HANDLING
-
-  void led_on() {
-    digitalWrite(LED_PIN, HIGH);     
-  }
-
-  void led_off() {
-    digitalWrite(LED_PIN, LOW);
-  }
-
-// ** SETUP **
+/*
+ * --------------
+ *     SETUP 
+ * --------------
+ */
 
 void setup() {
   init_board();
   init_console();
   init_led();
   init_fs(); // initialize file system  
-  read_settings(); // read credentials and label to watch for
-  create_process(); // create command used toretreive messages
+  // init_settings()); // read credentials and label to watch for
+  init_process(); // create command used toretreive messages
 }
 
-// ** MAIN FUNCTIONS
+/*
+ * --------------
+ * INIT FUNCTIONS 
+ * --------------
+ */
 
   void init_board() {
     Bridge.begin();   /* Initialize the Bridge */
@@ -107,72 +108,112 @@ void setup() {
     if(!file_or_dir_exists(SETTINGS_FOLDER))  {
       mkdir(SETTINGS_FOLDER);
     }
-
   }
 
   // read initial settings
-  void read_settings() {
-    credentials = read_credentials();
-    label = read_label();
+  void init_settings() {
+    credentials = settings_read(CREDENTIALS);
+    credentials_mtime = settings_mtime(CREDENTIALS);
 
-    label_mtime = label_get_mtime();
-    credentials_mtime = credentials_get_mtime();
+    label = settings_read(LABEL);
+    label_mtime = settings_mtime(LABEL);
   } 
+
+/*
+ * ---------------------------------
+ * STRING MANIPULATION & HW HANDLING
+ * ---------------------------------
+ */
+
+  void led_on() {
+    digitalWrite(LED_PIN, HIGH);     
+  }
+
+  void led_off() {
+    digitalWrite(LED_PIN, LOW);
+  }
+
+/*
+ * ------------------
+ * SETTINGS FUNCTIONS
+ * ------------------
+ */
+
+  // read and write settings on disk and memory
+  // gmail username and password are in the form USERNAME:PASSWORD
+  // label is just te label string
+  void settings_store(String key, String value) {    
+    put(key, value); // store is permanent, so save on both disk and memory
+    file_write(SETTINGS_FOLDER + "/" + key, value);
+  }
+
+  String settings_read(String key) {
+    return(file_read(SETTINGS_FOLDER + "/" + key));
+  }
+
+  // get modification time of a settings file
+  int settings_mtime(String key) {
+    return(file_mtime(SETTINGS_FOLDER + "/" + key));
+  }
 
   // Check if settings have been changed via webservices 
   // Data storage webservices are called this way: 
   // PUT: http://<arduino ip/hostname>/data/put/<key>/<value>  
   // GET: http://<arduino ip/hostname>/data/get/<key>  
-  void check_settings() {
-    if(credentials_changed() || label_changed()) {
+  void settings_check() {
+    Serial.println(label);
+    Serial.println(credentials);
+    Serial.println("----------");
+    if(settings_changed()) {
       // is something changed, create a new command with the new params
-      create_process();
+      init_process();
     }
   }
 
   // this two functions check for changes in settings, return true on change
   // false otherwise
-  boolean credentials_changed() {
-    String tmp = get(SETTINGS_CREDENTIALS);
-    int mtime = credentials_get_mtime();
+  boolean settings_changed() {
+    String value;
+    int mtime;
+    boolean changed = false;
 
-    // Checks if credentials have been changed
-    // TODO: If credentials are empty, show an error (NOACCES) on the LED display
-    if (tmp.length() > 0 && credentials != tmp){
-      credentials = tmp;
-      store_credentials(credentials);
-      return(true);
-    } else if(mtime != credentials_mtime) {
-      credentials = read_credentials();
+    // check LABEL
+    value = get(SETTINGS_KEY_LABEL);
+    if (value.length() > 0 && value != label) {
+      label = value;
+      settings_store(SETTINGS_KEY_LABEL, value);
+      changed = true;
+    } else if(label_mtime != (mtime = settings_mtime(SETTINGS_KEY_LABEL))) {
+      Serial.println("label file changed");
+      label = settings_read(SETTINGS_KEY_LABEL);
+      label_mtime = mtime;
+      settings_store(SETTINGS_KEY_LABEL, label);
+      changed = true;
+    }    
+
+    // check CREDENTIALS
+    value = get(SETTINGS_KEY_CREDENTIALS);
+    if (value.length() > 0 && value != credentials) {
+      credentials = value;
+      settings_store(SETTINGS_KEY_CREDENTIALS, value);
+      changed = true;
+    } else if(credentials_mtime != (mtime = settings_mtime(SETTINGS_KEY_CREDENTIALS))) {
+      Serial.println("credentials file changed");
+      credentials = settings_read(SETTINGS_KEY_CREDENTIALS);
       credentials_mtime = mtime;
-      return(true);
+      settings_store(SETTINGS_KEY_CREDENTIALS, credentials);
+      changed = true;
     }    
 
 
-    return(false);
+    return(changed);
   }
 
-  boolean label_changed() {
-    String tmp = get(SETTINGS_LABEL);
-    int mtime = label_get_mtime();
-
-    // Checks if a label has been specified via webservices and stores it in 
-    // a configuration file. If no label has been specified, it retrieves the 
-    // last one from the configuration file.
-    // If label file is empty, it checks for INBOX
-    if (tmp.length() > 0 && label != tmp){
-      label = tmp;
-      store_label(label);
-      return(true);
-    } else if(mtime != label_mtime) {
-      label = read_label();
-      label_mtime = mtime;
-      return(true);
-    }          
-    return(false);
-  }
-
-// ** FILE MANIPULATION ROUTINES
+/*
+ * --------------------------
+ * FILE MANIPULATION ROUTINES
+ * --------------------------
+ */
 
   // Check if a file or a directory exists 
   boolean file_or_dir_exists(String file_or_dir) {
@@ -186,6 +227,8 @@ void setup() {
 
   // Read the content of the file file_name and returns it as a String
   String file_read(String file_name) {
+    Serial.print("file_read: ");
+    Serial.println(file_name);
     File file = FileSystem.open(file_name.c_str(), FILE_READ);  
     
     if(!file) {
@@ -232,34 +275,6 @@ void setup() {
     return(process_read(p).toInt());
   }
 
-  int label_get_mtime() {
-    return(file_mtime(SETTINGS_FOLDER + "/label"));
-  }
-
-  int credentials_get_mtime() {
-    return(file_mtime(SETTINGS_FOLDER + "/credentials"));
-  }
-
-  // Save gmail username and password on persistent storage
-  // Credentials are in the form USERNAME:PASSWORD
-  void store_credentials(String credentials) {
-    file_write(SETTINGS_FOLDER + "/credentials", credentials);
-  }
-
-  // Read gmail credentials from persistent storage
-  String read_credentials() {
-    return(file_read(SETTINGS_FOLDER + "/credentials"));
-  }
-
-  // Save gmail label on persistent storage
-  void store_label(String label) {
-    file_write(SETTINGS_FOLDER + "/label", label);
-  }
-
-  // Read gmail label from persistent storage
-  String read_label() {
-    return(file_read(SETTINGS_FOLDER + "/label"));
-  }
 
 // ** PROCESS WRAPPER
 
@@ -304,7 +319,7 @@ void setup() {
     return(String(char_buffer));
   }
 
-  void create_process() {
+  void init_process() {
     shell_cmd.remove(0); // clear string
     shell_cmd.concat(CURL);
     shell_cmd.concat(CURL_FLAGS);
@@ -362,10 +377,14 @@ void setup() {
     return(String(char_buffer)); 
   }
 
+  void put(String key, String value) {
+    Bridge.put(key, value);
+  }
+
 // ** MAIN LOOP 
 void loop() {
 
-  check_settings();
+  settings_check();
 
   int messages = check_for_new_messages();
   
