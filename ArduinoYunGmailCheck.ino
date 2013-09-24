@@ -27,11 +27,16 @@
 
 #include "LedControl.h" // Downloaded From http://playground.arduino.cc/Main/LedControl 
 
+#include "GmailCheck.h"
 
-#define DELAY 1000 /* Delay in milliseconds between two loops */
-#define MAX_BUFF_LEN 128 // max length in bytes for a buffer
+#ifdef DEBUG
+  #define DELAY 5000 /* Delay in milliseconds between two loops */
+#else
+  #define DELAY 5000
+#endif
+
+#define MAX_BUFF_LEN 512 // max length in bytes for ıa buffer
 #define LED_PIN 13 /* Led on Pin 13 */
-
 
 #define CREDENTIALS "credentials"
 #define LABEL "label"
@@ -73,10 +78,9 @@ LedControl lc = LedControl(12,11,10,1);
 
 void setup() {
   init_board();
-  init_console();
-  init_led();
+  init_system();
   init_fs(); // initialize file system  
-  // init_settings()); // read credentials and label to watch for
+  init_settings(); // read credentials and label to watch for
   init_process(); // create command used toretreive messages
 }
 
@@ -89,13 +93,11 @@ void setup() {
   void init_board() {
     Bridge.begin();   /* Initialize the Bridge */
     Serial.begin(9600);   /* Initialize the Serial for debugging */    
-  }
 
-  void init_console() {
     Console.begin(); 
   }
 
-  void init_led() {
+  void init_system() {
     pinMode(LED_PIN, OUTPUT); /* Initialize the LED Pin */
 
     lc.shutdown(0,false); /* The MAX72XX is in power-saving mode on startup, we have to do a wakeup call */
@@ -114,9 +116,12 @@ void setup() {
   void init_settings() {
     credentials = settings_read(CREDENTIALS);
     credentials_mtime = settings_mtime(CREDENTIALS);
+    put(SETTINGS_KEY_CREDENTIALS, credentials);
 
     label = settings_read(LABEL);
     label_mtime = settings_mtime(LABEL);
+    put(SETTINGS_KEY_LABEL, label);
+
   } 
 
 /*
@@ -143,17 +148,24 @@ void setup() {
   // gmail username and password are in the form USERNAME:PASSWORD
   // label is just te label string
   void settings_store(String key, String value) {    
+    DBG("store setting: %s", key.c_str());
+
+    String file = FMT("%s/%s", SETTINGS_FOLDER.c_str(), key.c_str());
+    key = String(SETTINGS_KEY_PREFIX) + key;
     put(key, value); // store is permanent, so save on both disk and memory
-    file_write(SETTINGS_FOLDER + "/" + key, value);
+    DBG("key: %s store: %s %s\n", key.c_str(), file.c_str(), value.c_str());
+    file_write( file, value);
   }
 
   String settings_read(String key) {
-    return(file_read(SETTINGS_FOLDER + "/" + key));
+    DBG("read setting: %s", key.c_str());
+    return(file_read( FMT("%s/%s", SETTINGS_FOLDER.c_str(), key.c_str()) ));
   }
 
   // get modification time of a settings file
   int settings_mtime(String key) {
-    return(file_mtime(SETTINGS_FOLDER + "/" + key));
+    DBG("read mtime: %s", key.c_str());
+    return(file_mtime( FMT("%s/%s", SETTINGS_FOLDER.c_str(), key.c_str()) ));
   }
 
   // Check if settings have been changed via webservices 
@@ -161,9 +173,6 @@ void setup() {
   // PUT: http://<arduino ip/hostname>/data/put/<key>/<value>  
   // GET: http://<arduino ip/hostname>/data/get/<key>  
   void settings_check() {
-    Serial.println(label);
-    Serial.println(credentials);
-    Serial.println("----------");
     if(settings_changed()) {
       // is something changed, create a new command with the new params
       init_process();
@@ -174,34 +183,33 @@ void setup() {
   // false otherwise
   boolean settings_changed() {
     String value;
-    int mtime;
     boolean changed = false;
 
     // check LABEL
     value = get(SETTINGS_KEY_LABEL);
     if (value.length() > 0 && value != label) {
+      DBG("label in memory changed");
       label = value;
-      settings_store(SETTINGS_KEY_LABEL, value);
+      settings_store(LABEL, value);
       changed = true;
-    } else if(label_mtime != (mtime = settings_mtime(SETTINGS_KEY_LABEL))) {
-      Serial.println("label file changed");
-      label = settings_read(SETTINGS_KEY_LABEL);
-      label_mtime = mtime;
-      settings_store(SETTINGS_KEY_LABEL, label);
+    } else if(label_mtime != settings_mtime(LABEL)) {
+      DBG("label file changed");
+      settings_store(LABEL, settings_read(LABEL));
+      label_mtime = settings_mtime(LABEL);
       changed = true;
     }    
 
     // check CREDENTIALS
     value = get(SETTINGS_KEY_CREDENTIALS);
     if (value.length() > 0 && value != credentials) {
+      DBG("credentials in memory changed");
       credentials = value;
-      settings_store(SETTINGS_KEY_CREDENTIALS, value);
+      settings_store(CREDENTIALS, value);
       changed = true;
-    } else if(credentials_mtime != (mtime = settings_mtime(SETTINGS_KEY_CREDENTIALS))) {
-      Serial.println("credentials file changed");
-      credentials = settings_read(SETTINGS_KEY_CREDENTIALS);
-      credentials_mtime = mtime;
-      settings_store(SETTINGS_KEY_CREDENTIALS, credentials);
+    } else if(credentials_mtime != settings_mtime(CREDENTIALS)) {
+      DBG("credentials file changed");
+      settings_store(CREDENTIALS, settings_read(CREDENTIALS));
+      credentials_mtime = settings_mtime(CREDENTIALS);
       changed = true;
     }    
 
@@ -227,13 +235,11 @@ void setup() {
 
   // Read the content of the file file_name and returns it as a String
   String file_read(String file_name) {
-    Serial.print("file_read: ");
-    Serial.println(file_name);
+    DBG("file_read: %s", file_name.c_str());
     File file = FileSystem.open(file_name.c_str(), FILE_READ);  
     
     if(!file) {
-      //ser_log("File '%s' cannot be opened for reading.", file_name);
-      Serial.println("File '" +  file_name + "' cannot be opened for reading");
+      LOG("File '%s' cannot be opened for reading", file_name.c_str());
       return("");
     }
     
@@ -280,15 +286,14 @@ void setup() {
 
 
   int check_for_new_messages() {
-    Serial.println("checking for new messages");
+    DBG("checking for new messages");
 
     Process p;
     p.runShellCommand(shell_cmd);
 
     String s = process_read(p);
 
-    Serial.println(s);
-    Serial.flush();    
+    DBG("process output: %s", s.c_str());
 
     // check for the string Error 401 for unauthorized calls
     if(s == "Error 401") {      
@@ -383,6 +388,8 @@ void setup() {
 
 // ** MAIN LOOP 
 void loop() {
+  DBG("label: %s", label.c_str());
+  DBG("credentials: %s", credentials.c_str());
 
   settings_check();
 
@@ -398,8 +405,9 @@ void loop() {
   else
     led_off(); /* No messages, so I turn the red LED off */
 
+  DBG("---------------------------------\n");
+  
   delay(DELAY);  // wait 5 seconds before you do it again
-
 }
 
 
