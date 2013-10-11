@@ -29,6 +29,8 @@
 
 #include "GmailCheck.h"
 
+#include "Palette.h" // 10 color palette
+
 #ifdef DEBUG
 #define DELAY 5000 /* Delay in milliseconds between two loops */
 #else
@@ -421,10 +423,8 @@ void loop() {
   }
 
   if (messages > 0){
-    //led_on(); /* If I got messages, then I turn the red LED on */
     set_rgb_led(255,0,0); /* If I got messages, then I turn the red LED on */
   } else {
-    //led_off(); /* No messages, so I turn the red LED off */
     set_rgb_led(0,0,0); /* If I got messages, then I turn the red LED on */
   }
   DBG("---------------------------------\n");
