@@ -56,5 +56,20 @@ plus, obviously, +5V and GND :)
 
 ###Usage
 
+**VERY IMPORTANT**
+
+Before uploading the sketch, you have to manually create the /root/gmail_settings file, to do that you have to open an SSH session to the Yún
+
+```
+$ssh root@arduino.local
+```
+and once you're in, create the settings file
+```
+$touch /root/gmail_settings
+```
+
+
 Configure a label on Gmail, apply some filters, then point your browser to http://arduino.local/data/put/label/LABELNAME
 and replace LABELNAME with your label. Arduino will turn the led ON if there are unread messages under that label, and the LED display will show the number of unread messages.
+
+
